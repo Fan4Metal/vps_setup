@@ -8,6 +8,7 @@ echo "║                Начало первичной настройки VPS 
 echo "║                                                            ║"
 echo "║  • Обновление системы                                      ║"
 echo "║  • Установка Docker                                        ║"
+echo "║  • Установка вспомогательных пакетов                       ║"
 echo "║  • Создание пользователя metal                             ║"
 echo "║  • Настройка sudo без пароля                               ║"
 echo "║  • Добавление SSH-ключа                                    ║"
@@ -34,8 +35,12 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # 1. Обновление системы
-echo "→ 1. Обновление и апгрейд пакетов..."
-apt update && apt upgrade -y
+echo "→ 1. Обновление и апгрейд пакетов без вопросов, сохраняем свои конфиги..."
+DEBIAN_FRONTEND=noninteractive \
+apt update && \
+apt upgrade -y \
+-o Dpkg::Options::="--force-confdef" \
+-o Dpkg::Options::="--force-confold"
 
 # 2. Установка Docker
 echo "→ 2. Установка Docker..."
@@ -48,24 +53,33 @@ systemctl start docker
 systemctl enable docker
 echo "   Docker установлен и запущен"
 
-# 3. Создание пользователя metal (без пароля)
-echo "→ 3. Создание пользователя metal..."
+# 3. Установка вспомогательных пакетов
+echo "→ 3. Установка вспомогательных пакетов..."
+apt install -y \
+mc \
+htop \
+btop \
+iftop \
+bat
+
+# 4. Создание пользователя metal (без пароля)
+echo "→ 4. Создание пользователя metal..."
 adduser --disabled-password --gecos "" metal
 
-# 4. Добавление в группы sudo и docker
+# 5. Добавление в группы sudo и docker
 usermod -aG sudo metal
 usermod -aG docker metal
 echo "   Пользователь metal добавлен в группы sudo и docker"
 
 # 5. Добавление SSH-ключа в authorized_keys пользователя metal
-echo "→ 4. Добавление публичного SSH-ключа..."
+echo "→ 5. Добавление публичного SSH-ключа..."
 su - metal -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh"
 echo "$PUBLIC_KEY" | su - metal -c "tee ~/.ssh/authorized_keys > /dev/null"
 su - metal -c "chmod 600 ~/.ssh/authorized_keys"
 echo "   Ключ успешно добавлен"
 
 # sudo без пароля
-echo "→ 5. Настройка sudo без пароля для metal..."
+echo "→ 6. Настройка sudo без пароля для metal..."
 echo "metal ALL=(ALL) NOPASSWD: ALL" | tee /etc/sudoers.d/metal >/dev/null
 chmod 0440 /etc/sudoers.d/metal
 echo "   sudo без пароля настроен"
