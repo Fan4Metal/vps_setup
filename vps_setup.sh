@@ -3,24 +3,31 @@
 # Этот скрипт нужно запускать от root на Ubuntu/Debian-based VPS
 # -----------------------------------------------------------------
 
+# ────────────────────────────────────────────────
+#          Настраиваемые параметры
+# ────────────────────────────────────────────────
+
+NEW_USER="metal"                          # ← измените здесь имя пользователя
+
+PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9yOV4Ew4pOPrffUA63m7c8oH7e4rIJg2/VWpjlbSsV41hoXmC3d/KyVIAWlgrWa8ePRpTaLH954rQwIHQFf86f5K9mst7i5D3acg6fTne7hMrQp79fSPKYpfDBvyLV1WUUEyLQJVCF9p6IgtPXal3gx661F4cAc6xOM7LpGalYMT3n+6J0ZRUwAYTgNxfTbk7v6r39K3c/BhD6asAe6zVP0sfwJHsPWiPh03eTMWLCSMfXe3D2HZJOVbup3q9YFvj16c5kgfThVlZIK6d5vwbMlsaVXtuuuwtte/CCZi9AQ3ewKecQqj4mThx rsa-key-20250721"
+
+# ────────────────────────────────────────────────
+
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║                Начало первичной настройки VPS              ║"
 echo "║                                                            ║"
 echo "║  • Обновление системы                                      ║"
 echo "║  • Установка Docker                                        ║"
 echo "║  • Установка вспомогательных пакетов                       ║"
-echo "║  • Создание пользователя metal                             ║"
+echo "║  • Создание пользователя $NEW_USER                         ║"
 echo "║  • Настройка sudo без пароля                               ║"
 echo "║  • Добавление SSH-ключа                                    ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Запуск от пользователя: $(whoami)"
+echo "Создаваемый пользователь: $NEW_USER"
 echo "Дата/время начала:     $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
-
-# -----------------------------------------------------------------
-
-PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9yOV4Ew4pOPrffUA63m7c8oH7e4rIJg2/VWpjlbSsV41hoXmC3d/KyVIAWlgrWa8ePRpTaLH954rQwIHQFf86f5K9mst7i5D3acg6fTne7hMrQp79fSPKYpfDBvyLV1WUUEyLQJVCF9p6IgtPXal3gx661F4cAc6xOM7LpGalYMT3n+6J0ZRUwAYTgNxfTbk7v6r39K3c/BhD6asAe6zVP0sfwJHsPWiPh03eTMWLCSMfXe3D2HZJOVbup3q9YFvj16c5kgfThVlZIK6d5vwbMlsaVXtuuuwtte/CCZi9AQ3ewKecQqj4mThx rsa-key-20250721"
 
 # Проверка, что ключ выглядит примерно правильно
 if [[ ! "$PUBLIC_KEY" =~ ^ssh-(rsa|ed25519|ecdsa) ]]; then
@@ -62,30 +69,30 @@ btop \
 iftop \
 bat
 
-# 4. Создание пользователя metal (без пароля)
-echo "→ 4. Создание пользователя metal..."
-adduser --disabled-password --gecos "" metal
+# 4. Создание пользователя
+echo "→ 4. Создание пользователя $NEW_USER (без пароля)..."
+adduser --disabled-password --gecos "" "$NEW_USER"
 
 # 5. Добавление в группы sudo и docker
-usermod -aG sudo metal
-usermod -aG docker metal
-echo "   Пользователь metal добавлен в группы sudo и docker"
+usermod -aG sudo   "$NEW_USER"
+usermod -aG docker "$NEW_USER"
+echo "   Пользователь $NEW_USER добавлен в группы sudo и docker"
 
-# 5. Добавление SSH-ключа в authorized_keys пользователя metal
-echo "→ 5. Добавление публичного SSH-ключа..."
-su - metal -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh"
-echo "$PUBLIC_KEY" | su - metal -c "tee ~/.ssh/authorized_keys > /dev/null"
-su - metal -c "chmod 600 ~/.ssh/authorized_keys"
+# 6. Добавление SSH-ключа в authorized_keys
+echo "→ 6. Добавление публичного SSH-ключа для $NEW_USER..."
+su - "$NEW_USER" -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh"
+echo "$PUBLIC_KEY" | su - "$NEW_USER" -c "tee ~/.ssh/authorized_keys > /dev/null"
+su - "$NEW_USER" -c "chmod 600 ~/.ssh/authorized_keys"
 echo "   Ключ успешно добавлен"
 
-# sudo без пароля
-echo "→ 6. Настройка sudo без пароля для metal..."
-echo "metal ALL=(ALL) NOPASSWD: ALL" | tee /etc/sudoers.d/metal >/dev/null
-chmod 0440 /etc/sudoers.d/metal
+# 7. sudo без пароля
+echo "→ 7. Настройка sudo без пароля для $NEW_USER..."
+echo "$NEW_USER ALL=(ALL) NOPASSWD: ALL" | tee "/etc/sudoers.d/$NEW_USER" >/dev/null
+chmod 0440 "/etc/sudoers.d/$NEW_USER"
 echo "   sudo без пароля настроен"
 
 # Опционально: отключить вход по паролю и root-доступ по ssh
-# echo "→ Отключение входа root и пароля по SSH (раскомментируйте при необходимости)"
+# echo "→ Отключение входа root и пароля по SSH"
 # sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
 # sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
 # systemctl restart ssh
@@ -93,6 +100,6 @@ echo "   sudo без пароля настроен"
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║                  Настройка успешно завершена!              ║"
+echo "║               Пользователь: $NEW_USER создан               ║"
 echo "╚════════════════════════════════════════════════════════════╝"
-echo ""
 echo ""
