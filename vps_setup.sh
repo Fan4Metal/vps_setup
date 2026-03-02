@@ -49,15 +49,21 @@ apt upgrade -y \
 -o Dpkg::Options::="--force-confdef" \
 -o Dpkg::Options::="--force-confold"
 
-# 2. Установка Docker
-echo "→ 2. Установка Docker..."
-curl -fsSL https://get.docker.com -o get-docker.sh
-sh get-docker.sh
-rm get-docker.sh
+# 2. Установка Docker — только если его нет или он не запущен
+echo "→ 2. Проверка и установка Docker (если требуется)..."
 
-# Запуск и автозапуск Docker
-systemctl start docker
-systemctl enable docker
+if command -v docker >/dev/null 2>&1 && systemctl is-active --quiet docker; then
+    echo "   Docker уже установлен и запущен → пропускаем установку"
+else
+    echo "   Docker не найден или не запущен → выполняем установку..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sh get-docker.sh
+    rm -f get-docker.sh
+    
+    # Запуск и автозапуск
+    systemctl start docker
+    systemctl enable docker
+fi
 echo "   Docker установлен и запущен"
 
 # 3. Установка вспомогательных пакетов
