@@ -43,6 +43,12 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+read -p "Запустить первичную настройку VPS (y/n)? " confirm
+if [[ "$confirm" != "y" ]]; then
+    echo "Отменено."
+    exit 0
+fi
+
 # 1. Обновление системы
 echo "→ 1. Обновление и апгрейд пакетов без вопросов, сохраняем свои конфиги..."
 DEBIAN_FRONTEND=noninteractive \
