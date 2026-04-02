@@ -7,11 +7,10 @@
 #          Настраиваемые параметры
 # ────────────────────────────────────────────────
 
-NEW_USER="metal"                          # ← измените здесь имя пользователя
+NEW_USER="metal"  # имя создаваемого пользователя
 PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9yOV4Ew4pOPrffUA63m7c8oH7e4rIJg2/VWpjlbSsV41hoXmC3d/KyVIAWlgrWa8ePRpTaLH954rQwIHQFf86f5K9mst7i5D3acg6fTne7hMrQp79fSPKYpfDBvyLV1WUUEyLQJVCF9p6IgtPXal3gx661F4cAc6xOM7LpGalYMT3n+6J0ZRUwAYTgNxfTbk7v6r39K3c/BhD6asAe6zVP0sfwJHsPWiPh03eTMWLCSMfXe3D2HZJOVbup3q9YFvj16c5kgfThVlZIK6d5vwbMlsaVXtuuuwtte/CCZi9AQ3ewKecQqj4mThx rsa-key-20250721"
 
-# ROOT_PASS_PORT=1 отключает root-доступ и вход по паролю, меняет порт SSH на SSH_PORT
-ROOT_PASS_PORT=0
+ROOT_PASS_PORT=0  # ROOT_PASS_PORT=1 отключает root-доступ, вход по паролю, меняет порт SSH на SSH_PORT
 SSH_PORT=2299
 
 # ────────────────────────────────────────────────
@@ -108,7 +107,7 @@ if [ "$ROOT_PASS_PORT" = "1" ]; then
     mkdir -p /etc/ssh/sshd_config.d/
     
     # Создаём файл с настройками
-    cat > /etc/ssh/sshd_config.d/99-custom-ssh-settings.conf << EOF
+    cat > /etc/ssh/sshd_config.d/01-custom-ssh-settings.conf << EOF
 Port $SSH_PORT
 PermitRootLogin no
 PasswordAuthentication no
