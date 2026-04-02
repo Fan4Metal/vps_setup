@@ -8,8 +8,11 @@
 # ────────────────────────────────────────────────
 
 NEW_USER="metal"                          # ← измените здесь имя пользователя
-
 PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9yOV4Ew4pOPrffUA63m7c8oH7e4rIJg2/VWpjlbSsV41hoXmC3d/KyVIAWlgrWa8ePRpTaLH954rQwIHQFf86f5K9mst7i5D3acg6fTne7hMrQp79fSPKYpfDBvyLV1WUUEyLQJVCF9p6IgtPXal3gx661F4cAc6xOM7LpGalYMT3n+6J0ZRUwAYTgNxfTbk7v6r39K3c/BhD6asAe6zVP0sfwJHsPWiPh03eTMWLCSMfXe3D2HZJOVbup3q9YFvj16c5kgfThVlZIK6d5vwbMlsaVXtuuuwtte/CCZi9AQ3ewKecQqj4mThx rsa-key-20250721"
+
+# ROOT_PASS_PORT=1 отключает root-доступ и вход по паролю, меняет порт SSH на SSH_PORT
+ROOT_PASS_PORT=0
+SSH_PORT=2299
 
 # ────────────────────────────────────────────────
 
@@ -97,11 +100,44 @@ echo "$NEW_USER ALL=(ALL) NOPASSWD: ALL" | tee "/etc/sudoers.d/$NEW_USER" >/dev/
 chmod 0440 "/etc/sudoers.d/$NEW_USER"
 echo "   sudo без пароля настроен"
 
-# Опционально: отключить вход по паролю и root-доступ по ssh
-# echo "→ Отключение входа root и пароля по SSH"
-# sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
-# sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
-# systemctl restart ssh
+# 8. Настройка SSH (условно, в зависимости от ROOT_PASS_PORT)
+if [ "$ROOT_PASS_PORT" = "1" ]; then
+    echo "→ 8. Настройка SSH: отключение root-доступа, входа по паролю, смена порта на $SSH_PORT"
+    
+    # Создаём директорию для дополнительных конфигов, если её нет
+    mkdir -p /etc/ssh/sshd_config.d/
+    
+    # Создаём файл с настройками
+    cat > /etc/ssh/sshd_config.d/99-custom-ssh-settings.conf << EOF
+Port $SSH_PORT
+PermitRootLogin no
+PasswordAuthentication no
+EOF
+    
+    # Проверяем, есть ли уже директива Include в основном конфиге
+    if ! grep -q "^Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config; then
+        echo "→ Добавляем Include в /etc/ssh/sshd_config"
+        echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
+    fi
+    
+    # Проверяем, не конфликтует ли порт с уже существующими настройками
+    if grep -q "^Port " /etc/ssh/sshd_config; then
+        echo "⚠ Внимание: в основном конфиге уже указан порт. Будет использован порт $SSH_PORT (из дополнительного конфига)"
+    fi
+    
+    # Проверяем, не пытаемся ли мы использовать порт 22 (стандартный)
+    if [ "$SSH_PORT" = "22" ]; then
+        echo "⚠ Внимание: вы используете стандартный порт 22. Это менее безопасно."
+    fi
+    
+    # Перезапускаем SSH сервис
+    systemctl restart ssh
+    
+    echo "   SSH настроен: порт $SSH_PORT, root-доступ отключён, вход по паролю отключён"
+else
+    echo "→ 8. Пропускаем настройку SSH (ROOT_PASS_PORT = $ROOT_PASS_PORT)"
+    echo "   SSH-конфигурация остаётся без изменений"
+fi
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
