@@ -10,34 +10,30 @@
 NEW_USER="metal"  # имя создаваемого пользователя
 PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9yOV4Ew4pOPrffUA63m7c8oH7e4rIJg2/VWpjlbSsV41hoXmC3d/KyVIAWlgrWa8ePRpTaLH954rQwIHQFf86f5K9mst7i5D3acg6fTne7hMrQp79fSPKYpfDBvyLV1WUUEyLQJVCF9p6IgtPXal3gx661F4cAc6xOM7LpGalYMT3n+6J0ZRUwAYTgNxfTbk7v6r39K3c/BhD6asAe6zVP0sfwJHsPWiPh03eTMWLCSMfXe3D2HZJOVbup3q9YFvj16c5kgfThVlZIK6d5vwbMlsaVXtuuuwtte/CCZi9AQ3ewKecQqj4mThx rsa-key-20250721"
 
-ROOT_PASS_PORT=0  # ROOT_PASS_PORT=1 отключает root-доступ, вход по паролю, меняет порт SSH на SSH_PORT
-SSH_PORT=2299
+HARDEN_SSH="${HARDEN_SSH:-}"  # HARDEN_SSH=1 отключает root-доступ, вход по паролю, меняет порт SSH на SSH_PORT
+SSH_PORT="${SSH_PORT:-2299}"
 
 # ────────────────────────────────────────────────
 
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║                Начало первичной настройки VPS              ║"
-echo "║                                                            ║"
-echo "║  • Обновление системы                                      ║"
-echo "║  • Установка Docker                                        ║"
-echo "║  • Установка вспомогательных пакетов                       ║"
-echo "║  • Создание нового пользователя                            ║"
-echo "║  • Настройка sudo без пароля                               ║"
-echo "║  • Добавление SSH-ключа                                    ║"
-if [ "$ROOT_PASS_PORT" = "1" ]; then
-    echo "║  • Отключение root-доступа                                 ║"
-    echo "║  • Отключение входа по паролю                              ║"
-    echo "║  • Смена порта SSH                                         ║"
-fi
-echo "╚════════════════════════════════════════════════════════════╝"
-echo ""
-echo "Запуск от пользователя:   $(whoami)"
-echo "Создаваемый пользователь: $NEW_USER"
-if [ "$ROOT_PASS_PORT" = "1" ]; then
-    echo "Порт SSH:                 $SSH_PORT"
-fi
-echo "Дата/время начала:        $(date '+%Y-%m-%d %H:%M:%S')"
-echo ""
+ask_yes_no() {
+    local prompt="$1"
+    local default="$2"
+    local answer
+    
+    while true; do
+        read -r -p "$prompt " answer
+        
+        if [ -z "$answer" ]; then
+            answer="$default"
+        fi
+        
+        case "$answer" in
+            y|Y|yes|YES|д|Д|да|ДА) return 0 ;;
+            n|N|no|NO|н|Н|нет|НЕТ) return 1 ;;
+            *) echo "Введите y или n." ;;
+        esac
+    done
+}
 
 # Проверка, что ключ выглядит примерно правильно
 if [[ ! "$PUBLIC_KEY" =~ ^ssh-(rsa|ed25519|ecdsa) ]]; then
@@ -51,7 +47,42 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-read -p "Запустить первичную настройку VPS (y/n)? " confirm
+if [ -z "$HARDEN_SSH" ]; then
+    if ask_yes_no "Усилить SSH: отключить root, отключить парольный вход и сменить порт на $SSH_PORT? [y/N]" "n"; then
+        HARDEN_SSH=1
+    else
+        HARDEN_SSH=0
+    fi
+    elif [[ "$HARDEN_SSH" != "0" && "$HARDEN_SSH" != "1" ]]; then
+    echo "Ошибка: HARDEN_SSH должен быть 0 или 1." >&2
+    exit 1
+fi
+
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║                Начало первичной настройки VPS              ║"
+echo "║                                                            ║"
+echo "║  • Обновление системы                                      ║"
+echo "║  • Установка Docker                                        ║"
+echo "║  • Установка вспомогательных пакетов                       ║"
+echo "║  • Создание нового пользователя                            ║"
+echo "║  • Настройка sudo без пароля                               ║"
+echo "║  • Добавление SSH-ключа                                    ║"
+if [ "$HARDEN_SSH" = "1" ]; then
+    echo "║  • Отключение root-доступа                                 ║"
+    echo "║  • Отключение входа по паролю                              ║"
+    echo "║  • Смена порта SSH                                         ║"
+fi
+echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo "Запуск от пользователя:   $(whoami)"
+echo "Создаваемый пользователь: $NEW_USER"
+if [ "$HARDEN_SSH" = "1" ]; then
+    echo "Порт SSH:                 $SSH_PORT"
+fi
+echo "Дата/время начала:        $(date '+%Y-%m-%d %H:%M:%S')"
+echo ""
+
+read -r -p "Запустить первичную настройку VPS (y/n)? " confirm
 if [[ "$confirm" != "y" ]]; then
     echo "Отменено."
     exit 0
@@ -114,8 +145,8 @@ echo "$NEW_USER ALL=(ALL) NOPASSWD: ALL" | tee "/etc/sudoers.d/$NEW_USER" >/dev/
 chmod 0440 "/etc/sudoers.d/$NEW_USER"
 echo "   sudo без пароля настроен"
 
-# 8. Настройка SSH (условно, в зависимости от ROOT_PASS_PORT)
-if [ "$ROOT_PASS_PORT" = "1" ]; then
+# 8. Настройка SSH (условно, в зависимости от HARDEN_SSH)
+if [ "$HARDEN_SSH" = "1" ]; then
     echo "→ 8. Настройка SSH: отключение root-доступа, входа по паролю, смена порта на $SSH_PORT"
     
     # Создаём директорию для дополнительных конфигов, если её нет
@@ -149,7 +180,7 @@ EOF
     
     echo "   SSH настроен: порт $SSH_PORT, root-доступ отключён, вход по паролю отключён"
 else
-    echo "→ 8. Пропускаем настройку SSH (ROOT_PASS_PORT = $ROOT_PASS_PORT)"
+    echo "→ 8. Пропускаем настройку SSH (HARDEN_SSH = $HARDEN_SSH)"
     echo "   SSH-конфигурация остаётся без изменений"
 fi
 
