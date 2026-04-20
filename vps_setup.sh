@@ -13,6 +13,41 @@ PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9
 HARDEN_SSH="${HARDEN_SSH:-}"  # HARDEN_SSH=1 отключает root-доступ, вход по паролю, меняет порт SSH на SSH_PORT
 SSH_PORT="${SSH_PORT:-2299}"
 
+# Цвета вывода
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    BOLD='\033[1m'
+    RED='\033[31m'
+    GREEN='\033[32m'
+    YELLOW='\033[33m'
+    BLUE='\033[34m'
+    CYAN='\033[36m'
+    RESET='\033[0m'
+else
+    BOLD=''
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    CYAN=''
+    RESET=''
+fi
+
+info() {
+    printf "%b\n" "${CYAN}→ $*${RESET}"
+}
+
+success() {
+    printf "%b\n" "${GREEN}✓ $*${RESET}"
+}
+
+warn() {
+    printf "%b\n" "${YELLOW}⚠ $*${RESET}"
+}
+
+error() {
+    printf "%b\n" "${RED}Ошибка: $*${RESET}" >&2
+}
+
 # ────────────────────────────────────────────────
 
 ask_yes_no() {
@@ -30,20 +65,20 @@ ask_yes_no() {
         case "$answer" in
             y|Y|yes|YES|д|Д|да|ДА) return 0 ;;
             n|N|no|NO|н|Н|нет|НЕТ) return 1 ;;
-            *) echo "Введите y или n." ;;
+            *) warn "Введите y или n." ;;
         esac
     done
 }
 
 # Проверка, что ключ выглядит примерно правильно
 if [[ ! "$PUBLIC_KEY" =~ ^ssh-(rsa|ed25519|ecdsa) ]]; then
-    echo "Ошибка: PUBLIC_KEY не выглядит как валидный публичный SSH-ключ." >&2
-    echo "Он должен начинаться с ssh-rsa, ssh-ed25519 или ssh-ecdsa..." >&2
+    error "PUBLIC_KEY не выглядит как валидный публичный SSH-ключ."
+    error "Он должен начинаться с ssh-rsa, ssh-ed25519 или ssh-ecdsa..."
     exit 1
 fi
 
 if [ "$(id -u)" -ne 0 ]; then
-    echo "Скрипт должен запускаться от root." >&2
+    error "Скрипт должен запускаться от root."
     exit 1
 fi
 
@@ -54,7 +89,7 @@ if [ -z "$HARDEN_SSH" ]; then
         HARDEN_SSH=0
     fi
     elif [[ "$HARDEN_SSH" != "0" && "$HARDEN_SSH" != "1" ]]; then
-    echo "Ошибка: HARDEN_SSH должен быть 0 или 1." >&2
+    error "HARDEN_SSH должен быть 0 или 1."
     exit 1
 fi
 
@@ -84,12 +119,12 @@ echo ""
 
 read -r -p "Запустить первичную настройку VPS (y/n)? " confirm
 if [[ "$confirm" != "y" ]]; then
-    echo "Отменено."
+    warn "Отменено."
     exit 0
 fi
 
 # 1. Обновление системы
-echo "→ 1. Обновление и апгрейд пакетов без вопросов, сохраняем свои конфиги..."
+info "1. Обновление и апгрейд пакетов без вопросов, сохраняем свои конфиги..."
 DEBIAN_FRONTEND=noninteractive \
 apt update && \
 apt upgrade -y \
@@ -97,12 +132,12 @@ apt upgrade -y \
 -o Dpkg::Options::="--force-confold"
 
 # 2. Установка Docker — только если его нет или он не запущен
-echo "→ 2. Проверка и установка Docker (если требуется)..."
+info "2. Проверка и установка Docker (если требуется)..."
 
 if command -v docker >/dev/null 2>&1 && systemctl is-active --quiet docker; then
-    echo "   Docker уже установлен и запущен → пропускаем установку"
+    success "Docker уже установлен и запущен → пропускаем установку"
 else
-    echo "   Docker не найден или не запущен → выполняем установку..."
+    info "Docker не найден или не запущен → выполняем установку..."
     curl -fsSL https://get.docker.com -o get-docker.sh
     sh get-docker.sh
     rm -f get-docker.sh
@@ -111,10 +146,10 @@ else
     systemctl start docker
     systemctl enable docker
 fi
-echo "   Docker установлен и запущен"
+success "Docker установлен и запущен"
 
 # 3. Установка вспомогательных пакетов
-echo "→ 3. Установка вспомогательных пакетов..."
+info "3. Установка вспомогательных пакетов..."
 apt install -y \
 mc \
 htop \
@@ -124,30 +159,30 @@ bat \
 micro
 
 # 4. Создание пользователя
-echo "→ 4. Создание пользователя $NEW_USER (без пароля)..."
+info "4. Создание пользователя $NEW_USER (без пароля)..."
 adduser --disabled-password --gecos "" "$NEW_USER"
 
 # 5. Добавление в группы sudo и docker
 usermod -aG sudo   "$NEW_USER"
 usermod -aG docker "$NEW_USER"
-echo "   Пользователь $NEW_USER добавлен в группы sudo и docker"
+success "Пользователь $NEW_USER добавлен в группы sudo и docker"
 
 # 6. Добавление SSH-ключа в authorized_keys
-echo "→ 6. Добавление публичного SSH-ключа для $NEW_USER..."
+info "6. Добавление публичного SSH-ключа для $NEW_USER..."
 su - "$NEW_USER" -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh"
 echo "$PUBLIC_KEY" | su - "$NEW_USER" -c "tee ~/.ssh/authorized_keys > /dev/null"
 su - "$NEW_USER" -c "chmod 600 ~/.ssh/authorized_keys"
-echo "   Ключ успешно добавлен"
+success "Ключ успешно добавлен"
 
 # 7. sudo без пароля
-echo "→ 7. Настройка sudo без пароля для $NEW_USER..."
+info "7. Настройка sudo без пароля для $NEW_USER..."
 echo "$NEW_USER ALL=(ALL) NOPASSWD: ALL" | tee "/etc/sudoers.d/$NEW_USER" >/dev/null
 chmod 0440 "/etc/sudoers.d/$NEW_USER"
-echo "   sudo без пароля настроен"
+success "sudo без пароля настроен"
 
 # 8. Настройка SSH (условно, в зависимости от HARDEN_SSH)
 if [ "$HARDEN_SSH" = "1" ]; then
-    echo "→ 8. Настройка SSH: отключение root-доступа, входа по паролю, смена порта на $SSH_PORT"
+    info "8. Настройка SSH: отключение root-доступа, входа по паролю, смена порта на $SSH_PORT"
     
     # Создаём директорию для дополнительных конфигов, если её нет
     mkdir -p /etc/ssh/sshd_config.d/
@@ -161,27 +196,27 @@ EOF
     
     # Проверяем, есть ли уже директива Include в основном конфиге
     if ! grep -q "^Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config; then
-        echo "→ Добавляем Include в /etc/ssh/sshd_config"
+        info "Добавляем Include в /etc/ssh/sshd_config"
         echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
     fi
     
     # Проверяем, не конфликтует ли порт с уже существующими настройками
     if grep -q "^Port " /etc/ssh/sshd_config; then
-        echo "⚠ Внимание: в основном конфиге уже указан порт. Будет использован порт $SSH_PORT (из дополнительного конфига)"
+        warn "В основном конфиге уже указан порт. Будет использован порт $SSH_PORT (из дополнительного конфига)"
     fi
     
     # Проверяем, не пытаемся ли мы использовать порт 22 (стандартный)
     if [ "$SSH_PORT" = "22" ]; then
-        echo "⚠ Внимание: вы используете стандартный порт 22. Это менее безопасно."
+        warn "Вы используете стандартный порт 22. Это менее безопасно."
     fi
     
     # Перезапускаем SSH сервис
     systemctl restart ssh
     
-    echo "   SSH настроен: порт $SSH_PORT, root-доступ отключён, вход по паролю отключён"
+    success "SSH настроен: порт $SSH_PORT, root-доступ отключён, вход по паролю отключён"
 else
-    echo "→ 8. Пропускаем настройку SSH (HARDEN_SSH = $HARDEN_SSH)"
-    echo "   SSH-конфигурация остаётся без изменений"
+    info "8. Пропускаем настройку SSH (HARDEN_SSH = $HARDEN_SSH)"
+    success "SSH-конфигурация остаётся без изменений"
 fi
 
 echo ""
