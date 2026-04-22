@@ -161,6 +161,9 @@ micro
 # 4. Создание пользователя
 info "4. Создание пользователя $NEW_USER (без пароля)..."
 adduser --disabled-password --gecos "" "$NEW_USER"
+printf "alias lss='ls -lah'\nalias cls='clear'\nalias ip='ip -c'\n" | su - "$NEW_USER" -c "tee ~/.bash_aliases > /dev/null"
+su - "$NEW_USER" -c "chmod 644 ~/.bash_aliases"
+success "Для пользователя $NEW_USER создан файл ~/.bash_aliases"
 
 # 5. Добавление в группы sudo и docker
 usermod -aG sudo   "$NEW_USER"
