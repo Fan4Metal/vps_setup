@@ -8,7 +8,7 @@
 # ────────────────────────────────────────────────
 
 DEFAULT_NEW_USER="metal"  # имя создаваемого пользователя по умолчанию
-PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9yOV4Ew4pOPrffUA63m7c8oH7e4rIJg2/VWpjlbSsV41hoXmC3d/KyVIAWlgrWa8ePRpTaLH954rQwIHQFf86f5K9mst7i5D3acg6fTne7hMrQp79fSPKYpfDBvyLV1WUUEyLQJVCF9p6IgtPXal3gx661F4cAc6xOM7LpGalYMT3n+6J0ZRUwAYTgNxfTbk7v6r39K3c/BhD6asAe6zVP0sfwJHsPWiPh03eTMWLCSMfXe3D2HZJOVbup3q9YFvj16c5kgfThVlZIK6d5vwbMlsaVXtuuuwtte/CCZi9AQ3ewKecQqj4mThx rsa-key-20250721"
+DEFAULT_PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9yOV4Ew4pOPrffUA63m7c8oH7e4rIJg2/VWpjlbSsV41hoXmC3d/KyVIAWlgrWa8ePRpTaLH954rQwIHQFf86f5K9mst7i5D3acg6fTne7hMrQp79fSPKYpfDBvyLV1WUUEyLQJVCF9p6IgtPXal3gx661F4cAc6xOM7LpGalYMT3n+6J0ZRUwAYTgNxfTbk7v6r39K3c/BhD6asAe6zVP0sfwJHsPWiPh03eTMWLCSMfXe3D2HZJOVbup3q9YFvj16c5kgfThVlZIK6d5vwbMlsaVXtuuuwtte/CCZi9AQ3ewKecQqj4mThx rsa-key-20250721"  # публичный SSH-ключ по умолчанию
 
 HARDEN_SSH="${HARDEN_SSH:-}"  # HARDEN_SSH=1 отключает root-доступ, вход по паролю, меняет порт SSH на SSH_PORT
 SSH_PORT="${SSH_PORT:-2299}"
@@ -89,12 +89,24 @@ ask_new_user() {
     done
 }
 
-# Проверка, что ключ выглядит примерно правильно
-if [[ ! "$PUBLIC_KEY" =~ ^ssh-(rsa|ed25519|ecdsa) ]]; then
-    error "PUBLIC_KEY не выглядит как валидный публичный SSH-ключ."
-    error "Он должен начинаться с ssh-rsa, ssh-ed25519 или ssh-ecdsa..."
-    exit 1
-fi
+ask_public_key() {
+    local answer
+
+    while true; do
+        read -r -p "Введите публичный SSH-ключ [по умолчанию]: " answer
+
+        if [ -z "$answer" ]; then
+            answer="$DEFAULT_PUBLIC_KEY"
+        fi
+
+        if [[ "$answer" =~ ^ssh-(rsa|ed25519|ecdsa) ]]; then
+            PUBLIC_KEY="$answer"
+            return 0
+        fi
+
+        warn "SSH-ключ должен начинаться с ssh-rsa, ssh-ed25519 или ssh-ecdsa."
+    done
+}
 
 if [ "$(id -u)" -ne 0 ]; then
     error "Скрипт должен запускаться от root."
@@ -102,6 +114,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 ask_new_user
+ask_public_key
 
 if [ -z "$HARDEN_SSH" ]; then
     if ask_yes_no "Усилить SSH: отключить root, отключить парольный вход и сменить порт на $SSH_PORT? [y/N]" "n"; then
