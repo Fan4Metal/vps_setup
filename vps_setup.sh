@@ -108,6 +108,25 @@ ask_public_key() {
     done
 }
 
+ask_ssh_port() {
+    local answer
+
+    while true; do
+        read -r -p "Введите порт SSH [$SSH_PORT]: " answer
+
+        if [ -z "$answer" ]; then
+            answer="$SSH_PORT"
+        fi
+
+        if [[ "$answer" =~ ^[0-9]+$ ]] && [ "$answer" -ge 1 ] && [ "$answer" -le 65535 ]; then
+            SSH_PORT="$answer"
+            return 0
+        fi
+
+        warn "Порт SSH должен быть числом от 1 до 65535."
+    done
+}
+
 if [ "$(id -u)" -ne 0 ]; then
     error "Скрипт должен запускаться от root."
     exit 1
@@ -125,6 +144,10 @@ if [ -z "$HARDEN_SSH" ]; then
     elif [[ "$HARDEN_SSH" != "0" && "$HARDEN_SSH" != "1" ]]; then
     error "HARDEN_SSH должен быть 0 или 1."
     exit 1
+fi
+
+if [ "$HARDEN_SSH" = "1" ]; then
+    ask_ssh_port
 fi
 
 echo "╔════════════════════════════════════════════════════════════╗"
