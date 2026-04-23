@@ -7,7 +7,7 @@
 #          Настраиваемые параметры
 # ────────────────────────────────────────────────
 
-NEW_USER="metal"  # имя создаваемого пользователя
+DEFAULT_NEW_USER="metal"  # имя создаваемого пользователя по умолчанию
 PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9yOV4Ew4pOPrffUA63m7c8oH7e4rIJg2/VWpjlbSsV41hoXmC3d/KyVIAWlgrWa8ePRpTaLH954rQwIHQFf86f5K9mst7i5D3acg6fTne7hMrQp79fSPKYpfDBvyLV1WUUEyLQJVCF9p6IgtPXal3gx661F4cAc6xOM7LpGalYMT3n+6J0ZRUwAYTgNxfTbk7v6r39K3c/BhD6asAe6zVP0sfwJHsPWiPh03eTMWLCSMfXe3D2HZJOVbup3q9YFvj16c5kgfThVlZIK6d5vwbMlsaVXtuuuwtte/CCZi9AQ3ewKecQqj4mThx rsa-key-20250721"
 
 HARDEN_SSH="${HARDEN_SSH:-}"  # HARDEN_SSH=1 отключает root-доступ, вход по паролю, меняет порт SSH на SSH_PORT
@@ -70,6 +70,25 @@ ask_yes_no() {
     done
 }
 
+ask_new_user() {
+    local answer
+
+    while true; do
+        read -r -p "Введите имя нового пользователя [$DEFAULT_NEW_USER]: " answer
+
+        if [ -z "$answer" ]; then
+            answer="$DEFAULT_NEW_USER"
+        fi
+
+        if [[ "$answer" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]]; then
+            NEW_USER="$answer"
+            return 0
+        fi
+
+        warn "Имя пользователя должно начинаться со строчной буквы или _, затем содержать только строчные буквы, цифры, _ или -."
+    done
+}
+
 # Проверка, что ключ выглядит примерно правильно
 if [[ ! "$PUBLIC_KEY" =~ ^ssh-(rsa|ed25519|ecdsa) ]]; then
     error "PUBLIC_KEY не выглядит как валидный публичный SSH-ключ."
@@ -81,6 +100,8 @@ if [ "$(id -u)" -ne 0 ]; then
     error "Скрипт должен запускаться от root."
     exit 1
 fi
+
+ask_new_user
 
 if [ -z "$HARDEN_SSH" ]; then
     if ask_yes_no "Усилить SSH: отключить root, отключить парольный вход и сменить порт на $SSH_PORT? [y/N]" "n"; then
