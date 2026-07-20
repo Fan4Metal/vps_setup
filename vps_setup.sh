@@ -194,32 +194,43 @@ apt upgrade -y \
 -o Dpkg::Options::="--force-confdef" \
 -o Dpkg::Options::="--force-confold"
 
-# 2. Установка Docker — только если его нет или он не запущен
-info "2. Проверка и установка Docker (если требуется)..."
-
-if command -v docker >/dev/null 2>&1 && systemctl is-active --quiet docker; then
-    success "Docker уже установлен и запущен → пропускаем установку"
-else
-    info "Docker не найден или не запущен → выполняем установку..."
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sh get-docker.sh
-    rm -f get-docker.sh
-
-    # Запуск и автозапуск
-    systemctl start docker
-    systemctl enable docker
-fi
-success "Docker установлен и запущен"
-
-# 3. Установка вспомогательных пакетов
-info "3. Установка вспомогательных пакетов..."
+# 2. Установка вспомогательных пакетов
+info "2. Установка вспомогательных пакетов..."
 apt install -y \
+curl \
+ca-certificates \
 mc \
 htop \
 btop \
 iftop \
 bat \
 micro
+
+# 3. Установка Docker — только если его нет
+info "3. Проверка и установка Docker (если требуется)..."
+
+if command -v docker >/dev/null 2>&1; then
+    success "Docker уже установлен → пропускаем установку"
+    systemctl is-active --quiet docker || systemctl start docker
+    systemctl enable docker
+else
+    info "Docker не найден → выполняем установку..."
+    tmp_docker="$(mktemp)"
+    curl -fsSL https://get.docker.com -o "$tmp_docker"
+    sh "$tmp_docker"
+    rm -f "$tmp_docker"
+
+    # Запуск и автозапуск
+    systemctl start docker
+    systemctl enable docker
+fi
+
+if systemctl is-active --quiet docker; then
+    success "Docker установлен и запущен"
+else
+    error "Docker не запустился — проверьте: systemctl status docker"
+    exit 1
+fi
 
 # 4. Создание пользователя
 info "4. Создание пользователя $NEW_USER (без пароля)..."
