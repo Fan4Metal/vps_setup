@@ -11,7 +11,10 @@ export DEBIAN_FRONTEND=noninteractive
 # ────────────────────────────────────────────────
 
 DEFAULT_NEW_USER="metal"  # имя создаваемого пользователя по умолчанию
-DEFAULT_PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9yOV4Ew4pOPrffUA63m7c8oH7e4rIJg2/VWpjlbSsV41hoXmC3d/KyVIAWlgrWa8ePRpTaLH954rQwIHQFf86f5K9mst7i5D3acg6fTne7hMrQp79fSPKYpfDBvyLV1WUUEyLQJVCF9p6IgtPXal3gx661F4cAc6xOM7LpGalYMT3n+6J0ZRUwAYTgNxfTbk7v6r39K3c/BhD6asAe6zVP0sfwJHsPWiPh03eTMWLCSMfXe3D2HZJOVbup3q9YFvj16c5kgfThVlZIK6d5vwbMlsaVXtuuuwtte/CCZi9AQ3ewKecQqj4mThx rsa-key-20250721"  # публичный SSH-ключ по умолчанию
+# Публичные SSH-ключи по умолчанию (можно перечислить несколько — по одному на строку)
+DEFAULT_PUBLIC_KEYS=(
+    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9yOV4Ew4pOPrffUA63m7c8oH7e4rIJg2/VWpjlbSsV41hoXmC3d/KyVIAWlgrWa8ePRpTaLH954rQwIHQFf86f5K9mst7i5D3acg6fTne7hMrQp79fSPKYpfDBvyLV1WUUEyLQJVCF9p6IgtPXal3gx661F4cAc6xOM7LpGalYMT3n+6J0ZRUwAYTgNxfTbk7v6r39K3c/BhD6asAe6zVP0sfwJHsPWiPh03eTMWLCSMfXe3D2HZJOVbup3q9YFvj16c5kgfThVlZIK6d5vwbMlsaVXtuuuwtte/CCZi9AQ3ewKecQqj4mThx rsa-key-20250721"
+)
 
 HARDEN_SSH="${HARDEN_SSH:-}"  # HARDEN_SSH=1 отключает root-доступ, вход по паролю, меняет порт SSH на SSH_PORT
 SSH_PORT="${SSH_PORT:-2299}"
@@ -94,22 +97,45 @@ ask_new_user() {
     done
 }
 
-ask_public_key() {
+ask_public_keys() {
     local answer
+    PUBLIC_KEYS=()
+
+    info "Введите публичные SSH-ключи по одному. Пустая строка — завершить ввод."
+    info "Если не ввести ни одного ключа, будут использованы ключи по умолчанию."
 
     while true; do
-        read -r -p "Введите публичный SSH-ключ [по умолчанию]: " answer
+        read -r -p "SSH-ключ #$(( ${#PUBLIC_KEYS[@]} + 1 )) (Enter — закончить): " answer
 
+        # Пустая строка завершает ввод
         if [ -z "$answer" ]; then
-            answer="$DEFAULT_PUBLIC_KEY"
-        fi
-
-        if [[ "$answer" =~ ^ssh-(rsa|ed25519|ecdsa) ]]; then
-            PUBLIC_KEY="$answer"
+            if [ "${#PUBLIC_KEYS[@]}" -eq 0 ]; then
+                PUBLIC_KEYS=("${DEFAULT_PUBLIC_KEYS[@]}")
+                info "Ключи не введены → используются ключи по умолчанию (${#PUBLIC_KEYS[@]} шт.)"
+            fi
             return 0
         fi
 
-        warn "SSH-ключ должен начинаться с ssh-rsa, ssh-ed25519 или ssh-ecdsa."
+        if [[ ! "$answer" =~ ^ssh-(rsa|ed25519|ecdsa) ]]; then
+            warn "SSH-ключ должен начинаться с ssh-rsa, ssh-ed25519 или ssh-ecdsa."
+            continue
+        fi
+
+        # Пропускаем дубликаты
+        local dup=0 existing
+        for existing in "${PUBLIC_KEYS[@]}"; do
+            if [ "$existing" = "$answer" ]; then
+                dup=1
+                break
+            fi
+        done
+        if [ "$dup" -eq 1 ]; then
+            warn "Такой ключ уже добавлен → пропускаю."
+            continue
+        fi
+
+        PUBLIC_KEYS+=("$answer")
+        success "Добавлен ключ #${#PUBLIC_KEYS[@]}"
     done
 }
 
@@ -141,7 +167,7 @@ fi
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 ask_new_user
-ask_public_key
+ask_public_keys
 
 if [ -z "$HARDEN_SSH" ]; then
     if ask_yes_no "Усилить SSH: отключить root, отключить парольный вход и сменить порт на $SSH_PORT? [y/N]" "n"; then
@@ -248,15 +274,17 @@ usermod -aG sudo   "$NEW_USER"
 usermod -aG docker "$NEW_USER"
 success "Пользователь $NEW_USER добавлен в группы sudo и docker"
 
-# 6. Добавление SSH-ключа в authorized_keys
-info "6. Добавление публичного SSH-ключа для $NEW_USER..."
+# 6. Добавление SSH-ключей в authorized_keys
+info "6. Добавление публичных SSH-ключей для $NEW_USER (${#PUBLIC_KEYS[@]} шт.)..."
 su - "$NEW_USER" -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
-if su - "$NEW_USER" -c "grep -qxF '$PUBLIC_KEY' ~/.ssh/authorized_keys"; then
-    success "Ключ уже присутствует → пропускаем"
-else
-    echo "$PUBLIC_KEY" | su - "$NEW_USER" -c "tee -a ~/.ssh/authorized_keys > /dev/null"
-    success "Ключ успешно добавлен"
-fi
+for key in "${PUBLIC_KEYS[@]}"; do
+    if su - "$NEW_USER" -c "grep -qxF '$key' ~/.ssh/authorized_keys"; then
+        success "Ключ уже присутствует → пропускаем: ${key%% *} ...${key##* }"
+    else
+        echo "$key" | su - "$NEW_USER" -c "tee -a ~/.ssh/authorized_keys > /dev/null"
+        success "Ключ успешно добавлен: ${key%% *} ...${key##* }"
+    fi
+done
 
 # 7. sudo без пароля
 info "7. Настройка sudo без пароля для $NEW_USER..."
