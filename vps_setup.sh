@@ -265,7 +265,7 @@ if id "$NEW_USER" >/dev/null 2>&1; then
 else
     adduser --disabled-password --gecos "" "$NEW_USER"
 fi
-printf "alias lss='ls -lah --group-directories-first'\nalias cls='clear'\nalias ip='ip -c'\nalias df='df -h'\n" | su - "$NEW_USER" -c "tee ~/.bash_aliases > /dev/null"
+printf "alias lss='ls -lah --group-directories-first'\nalias cls='clear'\nalias ip='ip -c'\nalias df='df -h'\nalias m='micro'\n" | su - "$NEW_USER" -c "tee ~/.bash_aliases > /dev/null"
 su - "$NEW_USER" -c "chmod 644 ~/.bash_aliases"
 success "Для пользователя $NEW_USER создан файл ~/.bash_aliases"
 
