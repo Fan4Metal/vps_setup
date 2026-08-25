@@ -16,7 +16,11 @@ DEFAULT_PUBLIC_KEYS=(
     "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtj9Yh9Qq7RISYm7TK+NHbdxhBzZS9yOV4Ew4pOPrffUA63m7c8oH7e4rIJg2/VWpjlbSsV41hoXmC3d/KyVIAWlgrWa8ePRpTaLH954rQwIHQFf86f5K9mst7i5D3acg6fTne7hMrQp79fSPKYpfDBvyLV1WUUEyLQJVCF9p6IgtPXal3gx661F4cAc6xOM7LpGalYMT3n+6J0ZRUwAYTgNxfTbk7v6r39K3c/BhD6asAe6zVP0sfwJHsPWiPh03eTMWLCSMfXe3D2HZJOVbup3q9YFvj16c5kgfThVlZIK6d5vwbMlsaVXtuuuwtte/CCZi9AQ3ewKecQqj4mThx rsa-key-20250721"
 )
 
-HARDEN_SSH="${HARDEN_SSH:-}"  # HARDEN_SSH=1 отключает root-доступ, вход по паролю, меняет порт SSH на SSH_PORT
+HARDEN_SSH="${HARDEN_SSH:-}"  # HARDEN_SSH=1 включает усиление SSH (все пункты ниже сразу, без вопросов)
+# Отдельные пункты усиления: пусто — спросить, 1 — включить, 0 — пропустить
+SSH_DISABLE_ROOT="${SSH_DISABLE_ROOT:-}"          # отключить вход root по SSH
+SSH_DISABLE_PASSWORD="${SSH_DISABLE_PASSWORD:-}"  # отключить вход по паролю
+SSH_CHANGE_PORT="${SSH_CHANGE_PORT:-}"            # сменить порт SSH на SSH_PORT
 SSH_PORT="${SSH_PORT:-2299}"
 
 LOG_FILE="/var/log/vps_setup.log"
@@ -158,6 +162,16 @@ ask_ssh_port() {
     done
 }
 
+validate_flag() {
+    local name="$1"
+    local value="$2"
+
+    if [[ -n "$value" && "$value" != "0" && "$value" != "1" ]]; then
+        error "$name должен быть 0 или 1."
+        exit 1
+    fi
+}
+
 if [ "$(id -u)" -ne 0 ]; then
     error "Скрипт должен запускаться от root."
     exit 1
@@ -169,8 +183,9 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 ask_new_user
 ask_public_keys
 
+HARDEN_SSH_FROM_ENV=0
 if [ -z "$HARDEN_SSH" ]; then
-    if ask_yes_no "Усилить SSH: отключить root, отключить парольный вход и сменить порт на $SSH_PORT? [y/N]" "n"; then
+    if ask_yes_no "Усилить SSH? [y/N]" "n"; then
         HARDEN_SSH=1
     else
         HARDEN_SSH=0
@@ -178,10 +193,60 @@ if [ -z "$HARDEN_SSH" ]; then
 elif [[ "$HARDEN_SSH" != "0" && "$HARDEN_SSH" != "1" ]]; then
     error "HARDEN_SSH должен быть 0 или 1."
     exit 1
+else
+    HARDEN_SSH_FROM_ENV=1
 fi
 
+validate_flag SSH_DISABLE_ROOT     "$SSH_DISABLE_ROOT"
+validate_flag SSH_DISABLE_PASSWORD "$SSH_DISABLE_PASSWORD"
+validate_flag SSH_CHANGE_PORT      "$SSH_CHANGE_PORT"
+
 if [ "$HARDEN_SSH" = "1" ]; then
-    ask_ssh_port
+    # Каждый пункт усиления запрашивается отдельно.
+    # При HARDEN_SSH=1 из окружения незаданные пункты включаются без вопросов.
+    if [ -z "$SSH_DISABLE_ROOT" ]; then
+        if [ "$HARDEN_SSH_FROM_ENV" = "1" ]; then
+            SSH_DISABLE_ROOT=1
+        elif ask_yes_no "  Отключить вход root по SSH? [Y/n]" "y"; then
+            SSH_DISABLE_ROOT=1
+        else
+            SSH_DISABLE_ROOT=0
+        fi
+    fi
+
+    if [ -z "$SSH_DISABLE_PASSWORD" ]; then
+        if [ "$HARDEN_SSH_FROM_ENV" = "1" ]; then
+            SSH_DISABLE_PASSWORD=1
+        elif ask_yes_no "  Отключить вход по паролю? [Y/n]" "y"; then
+            SSH_DISABLE_PASSWORD=1
+        else
+            SSH_DISABLE_PASSWORD=0
+        fi
+    fi
+
+    if [ -z "$SSH_CHANGE_PORT" ]; then
+        if [ "$HARDEN_SSH_FROM_ENV" = "1" ]; then
+            SSH_CHANGE_PORT=1
+        elif ask_yes_no "  Сменить порт SSH? [Y/n]" "y"; then
+            SSH_CHANGE_PORT=1
+        else
+            SSH_CHANGE_PORT=0
+        fi
+    fi
+
+    if [ "$SSH_CHANGE_PORT" = "1" ]; then
+        ask_ssh_port
+    fi
+
+    # Если не выбран ни один пункт — усиление по сути отключено
+    if [ "$SSH_DISABLE_ROOT$SSH_DISABLE_PASSWORD$SSH_CHANGE_PORT" = "000" ]; then
+        warn "Ни один пункт усиления SSH не выбран → SSH останется без изменений."
+        HARDEN_SSH=0
+    fi
+else
+    SSH_DISABLE_ROOT=0
+    SSH_DISABLE_PASSWORD=0
+    SSH_CHANGE_PORT=0
 fi
 
 echo "╔════════════════════════════════════════════════════════════╗"
@@ -193,16 +258,20 @@ echo "║  • Установка вспомогательных пакетов 
 echo "║  • Создание нового пользователя                            ║"
 echo "║  • Настройка sudo без пароля                               ║"
 echo "║  • Добавление SSH-ключа                                    ║"
-if [ "$HARDEN_SSH" = "1" ]; then
+if [ "$SSH_DISABLE_ROOT" = "1" ]; then
     echo "║  • Отключение root-доступа                                 ║"
+fi
+if [ "$SSH_DISABLE_PASSWORD" = "1" ]; then
     echo "║  • Отключение входа по паролю                              ║"
+fi
+if [ "$SSH_CHANGE_PORT" = "1" ]; then
     echo "║  • Смена порта SSH                                         ║"
 fi
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Запуск от пользователя:   $(whoami)"
 echo "Создаваемый пользователь: $NEW_USER"
-if [ "$HARDEN_SSH" = "1" ]; then
+if [ "$SSH_CHANGE_PORT" = "1" ]; then
     echo "Порт SSH:                 $SSH_PORT"
 fi
 echo "Дата/время начала:        $(date '+%Y-%m-%d %H:%M:%S')"
@@ -300,10 +369,10 @@ success "sudo без пароля настроен"
 
 # 8. Настройка SSH (условно, в зависимости от HARDEN_SSH)
 if [ "$HARDEN_SSH" = "1" ]; then
-    info "8. Настройка SSH: отключение root-доступа, входа по паролю, смена порта на $SSH_PORT"
+    info "8. Настройка SSH..."
 
     # Убеждаемся, что ключ на месте, ПРЕЖДЕ чем отключать парольный вход
-    if ! su - "$NEW_USER" -c "test -s ~/.ssh/authorized_keys"; then
+    if [ "$SSH_DISABLE_PASSWORD" = "1" ] && ! su - "$NEW_USER" -c "test -s ~/.ssh/authorized_keys"; then
         error "authorized_keys пуст — отключение пароля заблокирует доступ. Прерываю."
         exit 1
     fi
@@ -311,12 +380,18 @@ if [ "$HARDEN_SSH" = "1" ]; then
     # Создаём директорию для дополнительных конфигов, если её нет
     mkdir -p /etc/ssh/sshd_config.d/
 
-    # Создаём файл с настройками
-    cat > /etc/ssh/sshd_config.d/01-custom-ssh-settings.conf << EOF
-Port $SSH_PORT
-PermitRootLogin no
-PasswordAuthentication no
-EOF
+    # Создаём файл только с выбранными настройками
+    SSH_CONF="/etc/ssh/sshd_config.d/01-custom-ssh-settings.conf"
+    : > "$SSH_CONF"
+    if [ "$SSH_CHANGE_PORT" = "1" ]; then
+        echo "Port $SSH_PORT" >> "$SSH_CONF"
+    fi
+    if [ "$SSH_DISABLE_ROOT" = "1" ]; then
+        echo "PermitRootLogin no" >> "$SSH_CONF"
+    fi
+    if [ "$SSH_DISABLE_PASSWORD" = "1" ]; then
+        echo "PasswordAuthentication no" >> "$SSH_CONF"
+    fi
 
     # Проверяем, есть ли уже директива Include в основном конфиге
     if ! grep -q "^Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config; then
@@ -324,20 +399,22 @@ EOF
         echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
     fi
 
-    # Проверяем, не конфликтует ли порт с уже существующими настройками
-    if grep -q "^Port " /etc/ssh/sshd_config; then
-        warn "В основном конфиге уже указан порт. Будет использован порт $SSH_PORT (из дополнительного конфига)"
-    fi
+    if [ "$SSH_CHANGE_PORT" = "1" ]; then
+        # Проверяем, не конфликтует ли порт с уже существующими настройками
+        if grep -q "^Port " /etc/ssh/sshd_config; then
+            warn "В основном конфиге уже указан порт. Будет использован порт $SSH_PORT (из дополнительного конфига)"
+        fi
 
-    # Проверяем, не пытаемся ли мы использовать порт 22 (стандартный)
-    if [ "$SSH_PORT" = "22" ]; then
-        warn "Вы используете стандартный порт 22. Это менее безопасно."
-    fi
+        # Проверяем, не пытаемся ли мы использовать порт 22 (стандартный)
+        if [ "$SSH_PORT" = "22" ]; then
+            warn "Вы используете стандартный порт 22. Это менее безопасно."
+        fi
 
-    # Если активен ufw — открываем новый порт, иначе после рестарта потеряем доступ
-    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
-        info "ufw активен → открываю порт $SSH_PORT/tcp"
-        ufw allow "$SSH_PORT"/tcp
+        # Если активен ufw — открываем новый порт, иначе после рестарта потеряем доступ
+        if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+            info "ufw активен → открываю порт $SSH_PORT/tcp"
+            ufw allow "$SSH_PORT"/tcp
+        fi
     fi
 
     # Определяем фактическое имя сервиса SSH (ssh на Debian/Ubuntu, иногда sshd)
@@ -348,7 +425,7 @@ EOF
 
     # На новых Ubuntu (22.10+) SSH активируется через сокет, и Port из sshd_config
     # игнорируется. Переключаемся на обычный сервис, чтобы новый порт применился.
-    if systemctl is-enabled --quiet ssh.socket 2>/dev/null || systemctl is-active --quiet ssh.socket 2>/dev/null; then
+    if [ "$SSH_CHANGE_PORT" = "1" ] && { systemctl is-enabled --quiet ssh.socket 2>/dev/null || systemctl is-active --quiet ssh.socket 2>/dev/null; }; then
         warn "Обнаружен ssh.socket → переключаюсь на сервис $SSH_SERVICE, чтобы порт применился"
         systemctl disable --now ssh.socket 2>/dev/null || true
         systemctl enable "$SSH_SERVICE" 2>/dev/null || true
@@ -357,16 +434,29 @@ EOF
     # Проверяем конфиг ДО перезапуска — иначе можно заблокировать себе доступ
     if ! sshd -t; then
         error "Конфигурация SSH невалидна — откатываю изменения."
-        rm -f /etc/ssh/sshd_config.d/01-custom-ssh-settings.conf
+        rm -f "$SSH_CONF"
         exit 1
     fi
 
     # Перезапускаем SSH сервис
     systemctl restart "$SSH_SERVICE"
 
-    success "SSH настроен: порт $SSH_PORT, root-доступ отключён, вход по паролю отключён"
+    success "SSH настроен:"
+    if [ "$SSH_CHANGE_PORT" = "1" ]; then
+        success "  • порт: $SSH_PORT"
+    fi
+    if [ "$SSH_DISABLE_ROOT" = "1" ]; then
+        success "  • root-доступ отключён"
+    fi
+    if [ "$SSH_DISABLE_PASSWORD" = "1" ]; then
+        success "  • вход по паролю отключён"
+    fi
     warn "НЕ ЗАКРЫВАЙТЕ текущую сессию! Сначала проверьте вход в новом окне:"
-    warn "    ssh -p $SSH_PORT $NEW_USER@<IP-адрес-сервера>"
+    if [ "$SSH_CHANGE_PORT" = "1" ]; then
+        warn "    ssh -p $SSH_PORT $NEW_USER@<IP-адрес-сервера>"
+    else
+        warn "    ssh $NEW_USER@<IP-адрес-сервера>"
+    fi
 else
     info "8. Пропускаем настройку SSH (HARDEN_SSH = $HARDEN_SSH)"
     success "SSH-конфигурация остаётся без изменений"
