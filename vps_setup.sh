@@ -23,6 +23,8 @@ SSH_DISABLE_PASSWORD="${SSH_DISABLE_PASSWORD:-}"  # отключить вход 
 SSH_CHANGE_PORT="${SSH_CHANGE_PORT:-}"            # сменить порт SSH на SSH_PORT
 SSH_PORT="${SSH_PORT:-2299}"
 
+DISABLE_AUTO_UPDATES="${DISABLE_AUTO_UPDATES:-}"  # пусто — спросить, 1 — отключить автообновления (unattended-upgrades), 0 — пропустить
+
 LOG_FILE="/var/log/vps_setup.log"
 
 # Цвета вывода
@@ -200,6 +202,7 @@ fi
 validate_flag SSH_DISABLE_ROOT     "$SSH_DISABLE_ROOT"
 validate_flag SSH_DISABLE_PASSWORD "$SSH_DISABLE_PASSWORD"
 validate_flag SSH_CHANGE_PORT      "$SSH_CHANGE_PORT"
+validate_flag DISABLE_AUTO_UPDATES "$DISABLE_AUTO_UPDATES"
 
 if [ "$HARDEN_SSH" = "1" ]; then
     # Каждый пункт усиления запрашивается отдельно.
@@ -249,6 +252,14 @@ else
     SSH_CHANGE_PORT=0
 fi
 
+if [ -z "$DISABLE_AUTO_UPDATES" ]; then
+    if ask_yes_no "Отключить автоматические обновления (unattended-upgrades)? [Y/n]" "y"; then
+        DISABLE_AUTO_UPDATES=1
+    else
+        DISABLE_AUTO_UPDATES=0
+    fi
+fi
+
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║                Начало первичной настройки VPS              ║"
 echo "║                                                            ║"
@@ -266,6 +277,9 @@ if [ "$SSH_DISABLE_PASSWORD" = "1" ]; then
 fi
 if [ "$SSH_CHANGE_PORT" = "1" ]; then
     echo "║  • Смена порта SSH                                         ║"
+fi
+if [ "$DISABLE_AUTO_UPDATES" = "1" ]; then
+    echo "║  • Отключение автоматических обновлений                    ║"
 fi
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
@@ -460,6 +474,49 @@ if [ "$HARDEN_SSH" = "1" ]; then
 else
     info "8. Пропускаем настройку SSH (HARDEN_SSH = $HARDEN_SSH)"
     success "SSH-конфигурация остаётся без изменений"
+fi
+
+# 9. Отключение автоматических обновлений (условно, в зависимости от DISABLE_AUTO_UPDATES)
+if [ "$DISABLE_AUTO_UPDATES" = "1" ]; then
+    info "9. Отключение автоматических обновлений..."
+
+    # Если установка обновлений идёт прямо сейчас — не прерываем её, только предупреждаем
+    if pgrep -f '/usr/bin/unattended-upgrade' >/dev/null 2>&1; then
+        warn "unattended-upgrade выполняется прямо сейчас — прерывать установку пакетов небезопасно."
+        warn "Таймеры будут отключены; текущий запуск завершится сам."
+    fi
+
+    # Таймеры systemd — основной механизм запуска автообновлений
+    for timer in apt-daily.timer apt-daily-upgrade.timer; do
+        if systemctl is-enabled --quiet "$timer" 2>/dev/null || systemctl is-active --quiet "$timer" 2>/dev/null; then
+            systemctl disable --now "$timer" >/dev/null 2>&1 || true
+            success "Таймер $timer остановлен и отключён"
+        else
+            success "Таймер $timer уже отключён → пропускаем"
+        fi
+    done
+
+    # Конфиг периодических задач APT — страховка на случай ручного запуска apt-daily
+    cat > /etc/apt/apt.conf.d/20auto-upgrades << 'EOF'
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Download-Upgradeable-Packages "0";
+APT::Periodic::AutocleanInterval "0";
+APT::Periodic::Unattended-Upgrade "0";
+EOF
+    success "Периодические задачи APT отключены (/etc/apt/apt.conf.d/20auto-upgrades)"
+
+    # Итоговая проверка
+    if ! systemctl is-active --quiet apt-daily.timer 2>/dev/null \
+        && ! systemctl is-active --quiet apt-daily-upgrade.timer 2>/dev/null; then
+        success "Автоматические обновления отключены"
+        warn "Security-обновления теперь устанавливаются вручную: apt update && apt upgrade"
+    else
+        error "Не удалось отключить таймеры — проверьте: systemctl list-timers 'apt-daily*'"
+        exit 1
+    fi
+else
+    info "9. Пропускаем отключение автообновлений (DISABLE_AUTO_UPDATES = $DISABLE_AUTO_UPDATES)"
+    success "Автоматические обновления остаются без изменений"
 fi
 
 echo ""
