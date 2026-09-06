@@ -264,7 +264,7 @@ echo "╔═══════════════════════�
 echo "║                Начало первичной настройки VPS              ║"
 echo "║                                                            ║"
 echo "║  • Обновление системы                                      ║"
-echo "║  • Установка Docker                                        ║"
+echo "║  • Установка Docker и Docker Compose                       ║"
 echo "║  • Установка вспомогательных пакетов                       ║"
 echo "║  • Создание нового пользователя                            ║"
 echo "║  • Настройка sudo без пароля                               ║"
@@ -338,6 +338,34 @@ if systemctl is-active --quiet docker; then
     success "Docker установлен и запущен"
 else
     error "Docker не запустился — проверьте: systemctl status docker"
+    exit 1
+fi
+
+# 3.1 Docker Compose — плагин может отсутствовать, если Docker ставили не через get.docker.com
+info "3.1 Проверка и установка Docker Compose (если требуется)..."
+
+if docker compose version >/dev/null 2>&1; then
+    success "Docker Compose уже установлен → пропускаем установку"
+else
+    info "Docker Compose не найден → выполняем установку..."
+    if apt install -y docker-compose-plugin; then
+        :
+    elif apt install -y docker-compose-v2; then
+        :
+    else
+        warn "Плагин не найден в репозиториях → скачиваем бинарник с GitHub"
+        compose_dir="/usr/local/lib/docker/cli-plugins"
+        mkdir -p "$compose_dir"
+        compose_url="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)"
+        curl -fsSL "$compose_url" -o "$compose_dir/docker-compose"
+        chmod +x "$compose_dir/docker-compose"
+    fi
+fi
+
+if docker compose version >/dev/null 2>&1; then
+    success "Docker Compose установлен ($(docker compose version --short))"
+else
+    error "Docker Compose не установился — проверьте: docker compose version"
     exit 1
 fi
 
